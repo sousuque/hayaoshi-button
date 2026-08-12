@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>早押しボタン</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Yusei+Magic&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #12162a;
+  --panel: #1b2140;
+  --panel-alt: #212849;
+  --border: #2c3358;
+  --red: #e8484b;
+  --red-dark: #c93638;
+  --gold: #f0b429;
+  --text: #f3f1ea;
+  --muted: #8b93b8;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+
+.qm-app {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Yusei Magic', sans-serif;
+  padding: 32px 16px 64px;
+}
+.qm-wrap { max-width: 880px; margin: 0 auto; }
+
+.qm-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.qm-title {
+  font-family: 'Yusei Magic', sans-serif;
+  font-weight: 400;
+  font-size: 26px;
+  margin: 0;
+  letter-spacing: 0.02em;
+}
+.qm-hint { font-size: 12px; color: var(--muted); margin: 0 0 20px 4px; }
+
+.qm-card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 24px; margin-bottom: 20px; }
+
+.qm-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.qm-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-alt);
+  color: var(--text);
+  font-size: 14px;
+  font-family: 'Yusei Magic', sans-serif;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  white-space: nowrap;
+}
+.qm-btn:hover { border-color: var(--gold); }
+.qm-btn-primary { background: var(--red); border-color: var(--red-dark); color: #fff; }
+.qm-btn-primary:hover { background: var(--red-dark); border-color: var(--red-dark); }
+.qm-btn-danger { background: transparent; border-color: var(--red); color: #ff8385; }
+.qm-btn-danger:hover { background: var(--red); border-color: var(--red-dark); color: #fff; }
+.qm-btn-lg { padding: 16px 30px; font-size: 17px; border-radius: 12px; }
+.qm-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.qm-btn:disabled:hover { border-color: var(--border); background: var(--panel-alt); }
+
+.qm-input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  color: var(--text);
+  font-size: 15px;
+  font-family: 'Yusei Magic', sans-serif;
+}
+.qm-input:focus {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(240, 180, 41, 0.15);
+}
+.qm-field { margin-bottom: 16px; }
+.qm-label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 700; }
+
+.qm-btn:focus-visible, .qm-input:focus-visible, .qm-buzzer:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* ---- empty state ---- */
+.qm-empty { text-align: center; padding: 40px 20px; color: var(--muted); }
+.qm-empty-title { font-family: 'Yusei Magic', sans-serif; font-size: 17px; color: var(--text); margin-bottom: 8px; }
+.qm-empty p { margin: 0 0 16px; font-size: 13px; }
+
+/* ---- status line ---- */
+.qm-status-line { margin-top: 14px; font-size: 13px; color: var(--muted); text-align: center; }
+.qm-status-line.gold { color: var(--gold); }
+.qm-status-line.red { color: #ff8385; }
+
+/* ---- central buzz display ---- */
+.qm-buzz-stage {
+  text-align: center;
+  padding: 28px 16px;
+  border-radius: 14px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+.qm-buzz-stage.locked {
+  border-color: var(--red);
+  background: linear-gradient(135deg, rgba(232, 72, 75, 0.16), rgba(232, 72, 75, 0.04));
+  box-shadow: 0 0 26px rgba(232, 72, 75, 0.25);
+}
+.qm-buzz-stage.solved {
+  border-color: var(--gold);
+  background: linear-gradient(135deg, rgba(240, 180, 41, 0.16), rgba(240, 180, 41, 0.04));
+  box-shadow: 0 0 26px rgba(240, 180, 41, 0.2);
+}
+.qm-buzz-idle { font-size: 14px; color: var(--muted); }
+.qm-buzz-clock {
+  font-family: 'Yusei Magic', sans-serif;
+  font-size: 44px;
+  letter-spacing: 0.03em;
+  color: var(--text);
+}
+.qm-buzz-clock-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.qm-buzz-name { font-size: 30px; color: var(--red); font-weight: 400; }
+.qm-buzz-stage.solved .qm-buzz-name { color: var(--gold); }
+.qm-buzz-time { font-size: 18px; color: var(--text); margin-top: 6px; }
+.qm-buzz-result-tag { font-size: 13px; color: var(--gold); margin-top: 8px; }
+
+.qm-judge-row { display: flex; justify-content: center; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+
+/* ---- buzzer buttons grid ---- */
+.qm-buzzer-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 20px;
+}
+.qm-buzzer {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 16px 22px;
+  min-width: 120px;
+  border-radius: 16px;
+  font-family: 'Yusei Magic', sans-serif;
+  font-size: 16px;
+  color: var(--muted);
+  background: var(--panel);
+  border: none;
+  border-bottom: 4px solid var(--border);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.qm-buzzer:hover { color: var(--text); }
+.qm-buzzer:active { transform: translateY(2px); border-bottom-width: 2px; }
+.qm-buzzer.active {
+  background: var(--red);
+  color: #fff;
+  border-bottom-color: var(--red-dark);
+  box-shadow: 0 0 22px rgba(232, 72, 75, 0.4);
+}
+.qm-buzzer.queued {
+  color: var(--gold);
+  border-bottom-color: var(--gold);
+}
+.qm-buzzer.out {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.qm-buzzer-key {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+.qm-buzzer.active .qm-buzzer-key { background: rgba(255,255,255,0.2); color: #fff; border-color: transparent; }
+.qm-buzzer-order {
+  position: absolute;
+  top: -8px;
+  right: -6px;
+  font-size: 11px;
+  background: var(--gold);
+  color: #1b2140;
+  border-radius: 999px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+
+/* ---- scoreboard ---- */
+.qm-scoreboard-title { font-size: 15px; margin: 0 0 14px; color: var(--text); }
+.qm-participant-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 10px 10px 14px;
+  margin-bottom: 10px;
+}
+.qm-participant-row.is-turn { border-color: var(--red); box-shadow: 0 0 0 1px var(--red); }
+.qm-participant-key {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.qm-participant-name { flex: 1; min-width: 0; font-size: 14px; word-break: break-word; }
+.qm-score-control { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.qm-score-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+  line-height: 1;
+}
+.qm-score-btn:hover { border-color: var(--gold); }
+.qm-score-value { min-width: 26px; text-align: center; font-size: 14px; font-weight: 700; color: var(--gold); }
+.qm-participant-remove {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  flex-shrink: 0;
+  padding: 2px 4px;
+}
+.qm-participant-remove:hover { color: #ff8385; }
+
+/* ---- modal ---- */
+.qm-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 8, 18, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 50;
+}
+.qm-modal { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 24px; max-width: 360px; width: 100%; }
+.qm-modal-title { font-family: 'Yusei Magic', sans-serif; font-size: 16px; margin-bottom: 16px; }
+.qm-modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 6px; }
+.qm-key-picker-btn {
+  width: 100%;
+  justify-content: center;
+  font-size: 15px;
+  padding: 12px 14px;
+}
+.qm-key-picker-btn.picking {
+  border-color: var(--gold);
+  color: var(--gold);
+  animation: qm-pulse 1s ease-in-out infinite;
+}
+@keyframes qm-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(240, 180, 41, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(240, 180, 41, 0); }
+}
+.qm-modal-error { font-size: 12px; color: #ff8385; margin: -8px 0 14px; min-height: 14px; }
+
+.qm-hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="qm-app">
+  <div class="qm-wrap">
+    <div class="qm-header">
+      <h1 class="qm-title">早押しボタン</h1>
+    </div>
+    <p class="qm-hint">スペースキーでも「問題を始める」を実行できます。プレイヤーはボタンクリックか割り当てられたキーで解答権を得ます。</p>
+
+    <div class="qm-card">
+      <div class="qm-toolbar">
+        <button class="qm-btn qm-btn-primary" type="button" id="btn-add-player">＋ プレイヤーを追加</button>
+        <button class="qm-btn qm-btn-primary qm-btn-lg" type="button" id="btn-start">▶ 問題を始める</button>
+      </div>
+      <div class="qm-status-line" id="status-line"></div>
+    </div>
+
+    <div class="qm-card">
+      <div class="qm-buzz-stage" id="buzz-stage">
+        <div class="qm-buzz-idle" id="buzz-idle">「問題を始める」を押すと解答受付が始まります</div>
+      </div>
+      <div class="qm-judge-row qm-hidden" id="judge-row">
+        <button class="qm-btn qm-btn-primary" type="button" id="btn-correct">⭕ 正解</button>
+        <button class="qm-btn qm-btn-danger" type="button" id="btn-wrong">❌ 誤答</button>
+      </div>
+      <div class="qm-buzzer-grid" id="buzzer-grid"></div>
+      <div class="qm-empty qm-hidden" id="empty-state">
+        <div class="qm-empty-title">プレイヤーがいません</div>
+        <p>「プレイヤーを追加」から参加者を登録してください。</p>
+      </div>
+    </div>
+
+    <div class="qm-card qm-hidden" id="scoreboard-card">
+      <h2 class="qm-scoreboard-title">得点板</h2>
+      <div id="scoreboard-list"></div>
+    </div>
+  </div>
+</div>
+
+<div class="qm-modal-backdrop qm-hidden" id="modal-backdrop">
+  <div class="qm-modal" data-stop="1">
+    <div class="qm-modal-title">プレイヤーを追加</div>
+    <div class="qm-field">
+      <label class="qm-label" for="modal-name-input">名前</label>
+      <input class="qm-input" id="modal-name-input" type="text" maxlength="20" placeholder="プレイヤー名" autocomplete="off">
+    </div>
+    <div class="qm-field">
+      <label class="qm-label">使用するキー</label>
+      <button class="qm-btn qm-key-picker-btn" type="button" id="btn-pick-key">キーを選択</button>
+    </div>
+    <div class="qm-modal-error" id="modal-error"></div>
+    <div class="qm-modal-actions">
+      <button class="qm-btn" type="button" id="btn-modal-cancel">キャンセル</button>
+      <button class="qm-btn qm-btn-primary" type="button" id="btn-modal-confirm">追加</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var state = {
+    players: [],           // {id, name, key, score}
+    quizActive: false,      // 解答受付中かどうか（開始〜正解 まで）
+    startTime: null,        // performance.now() at start
+    queue: [],              // [{id, time}] buzz順
+    buzzedSet: {},           // id -> true (この問題で一度でも押した)
+    wrongSet: {},            // id -> true (この問題で誤答済み)
+    currentId: null,         // 解答権を持つプレイヤーのid
+    solved: false,           // 正解が出て終了した
+    picking: false           // モーダル内でキー選択待ちか
+  };
+  var pickedKey = null;
+  var clockRAF = null;
+  var uidSeed = 1;
+
+  function genId() { return 'p' + (uidSeed++) + '-' + Date.now().toString(36); }
+
+  var el = {
+    btnAddPlayer: document.getElementById('btn-add-player'),
+    btnStart: document.getElementById('btn-start'),
+    statusLine: document.getElementById('status-line'),
+    buzzStage: document.getElementById('buzz-stage'),
+    judgeRow: document.getElementById('judge-row'),
+    btnCorrect: document.getElementById('btn-correct'),
+    btnWrong: document.getElementById('btn-wrong'),
+    buzzerGrid: document.getElementById('buzzer-grid'),
+    emptyState: document.getElementById('empty-state'),
+    scoreboardCard: document.getElementById('scoreboard-card'),
+    scoreboardList: document.getElementById('scoreboard-list'),
+    modalBackdrop: document.getElementById('modal-backdrop'),
+    modalNameInput: document.getElementById('modal-name-input'),
+    btnPickKey: document.getElementById('btn-pick-key'),
+    modalError: document.getElementById('modal-error'),
+    btnModalCancel: document.getElementById('btn-modal-cancel'),
+    btnModalConfirm: document.getElementById('btn-modal-confirm')
+  };
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function findPlayer(id) {
+    for (var i = 0; i < state.players.length; i++) {
+      if (state.players[i].id === id) return state.players[i];
+    }
+    return null;
+  }
+
+  // ---------------- modal (add player) ----------------
+  function openModal() {
+    pickedKey = null;
+    state.picking = false;
+    el.modalNameInput.value = '';
+    el.btnPickKey.textContent = 'キーを選択';
+    el.btnPickKey.classList.remove('picking');
+    el.modalError.textContent = '';
+    el.modalBackdrop.classList.remove('qm-hidden');
+    el.modalNameInput.focus();
+  }
+  function closeModal() {
+    state.picking = false;
+    el.modalBackdrop.classList.add('qm-hidden');
+  }
+  function startKeyPicking() {
+    state.picking = true;
+    el.btnPickKey.textContent = 'キーを押してください… (A〜Z)';
+    el.btnPickKey.classList.add('picking');
+    el.modalError.textContent = '';
+  }
+  function finishKeyPicking(letter) {
+    var usedBy = null;
+    for (var i = 0; i < state.players.length; i++) {
+      if (state.players[i].key === letter) usedBy = state.players[i];
+    }
+    if (usedBy) {
+      el.modalError.textContent = 'そのキーは「' + usedBy.name + '」が使用中です。';
+      state.picking = false;
+      el.btnPickKey.textContent = 'キーを選択';
+      el.btnPickKey.classList.remove('picking');
+      return;
+    }
+    pickedKey = letter;
+    state.picking = false;
+    el.btnPickKey.textContent = '選択したキー：' + letter + '（変更する）';
+    el.btnPickKey.classList.remove('picking');
+    el.modalError.textContent = '';
+  }
+  function confirmAddPlayer() {
+    var name = el.modalNameInput.value.trim();
+    if (!name) {
+      el.modalError.textContent = '名前を入力してください。';
+      return;
+    }
+    if (!pickedKey) {
+      el.modalError.textContent = '使用するキーを選択してください。';
+      return;
+    }
+    state.players.push({ id: genId(), name: name, key: pickedKey, score: 0 });
+    closeModal();
+    setStatus('「' + name + '」を追加しました。', '');
+    renderAll();
+  }
+
+  el.btnAddPlayer.addEventListener('click', openModal);
+  el.btnModalCancel.addEventListener('click', closeModal);
+  el.btnModalConfirm.addEventListener('click', confirmAddPlayer);
+  el.btnPickKey.addEventListener('click', startKeyPicking);
+  el.modalBackdrop.addEventListener('click', function (e) {
+    if (e.target === el.modalBackdrop) closeModal();
+  });
+  el.modalNameInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); confirmAddPlayer(); }
+  });
+
+  // ---------------- quiz flow ----------------
+  function setStatus(msg, cls) {
+    el.statusLine.textContent = msg;
+    el.statusLine.className = 'qm-status-line' + (cls ? ' ' + cls : '');
+  }
+
+  function startQuestion() {
+    if (state.players.length === 0) {
+      setStatus('先にプレイヤーを追加してください。', 'red');
+      return;
+    }
+    state.quizActive = true;
+    state.solved = false;
+    state.startTime = performance.now();
+    state.queue = [];
+    state.buzzedSet = {};
+    state.wrongSet = {};
+    state.currentId = null;
+    setStatus('解答受付中…', 'gold');
+    renderAll();
+    runClock();
+  }
+
+  function runClock() {
+    if (clockRAF) cancelAnimationFrame(clockRAF);
+    function tick() {
+      if (!state.quizActive || state.currentId !== null) { clockRAF = null; return; }
+      renderBuzzStage();
+      clockRAF = requestAnimationFrame(tick);
+    }
+    clockRAF = requestAnimationFrame(tick);
+  }
+
+  function handleBuzz(id) {
+    if (!state.quizActive) return;
+    if (state.buzzedSet[id]) return; // 既にこの問題で押した
+    var elapsed = (performance.now() - state.startTime) / 1000;
+    state.buzzedSet[id] = true;
+    state.queue.push({ id: id, time: elapsed });
+    if (state.currentId === null) {
+      state.currentId = id;
+      var p = findPlayer(id);
+      setStatus(p ? p.name + ' さんが解答権を得ました。' : '', 'red');
+    }
+    renderAll();
+  }
+
+  function judge(result) {
+    if (!state.quizActive || state.currentId === null) return;
+    var p = findPlayer(state.currentId);
+    if (!p) return;
+    if (result === 'correct') {
+      p.score += 1;
+      state.quizActive = false;
+      state.solved = true;
+      setStatus(p.name + ' さん正解！ +1点', 'gold');
+    } else {
+      p.score -= 1;
+      state.wrongSet[state.currentId] = true;
+      // キューの先頭（現在の回答者）を取り除く
+      if (state.queue.length && state.queue[0].id === state.currentId) {
+        state.queue.shift();
+      }
+      if (state.queue.length > 0) {
+        state.currentId = state.queue[0].id;
+        var next = findPlayer(state.currentId);
+        setStatus(p.name + ' さん誤答… -1点。次は ' + (next ? next.name : '') + ' さんの解答権です。', 'red');
+      } else {
+        state.currentId = null;
+        setStatus(p.name + ' さん誤答… -1点。解答受付中…', 'gold');
+        runClock();
+      }
+    }
+    renderAll();
+  }
+
+  el.btnStart.addEventListener('click', startQuestion);
+  el.btnCorrect.addEventListener('click', function () { judge('correct'); });
+  el.btnWrong.addEventListener('click', function () { judge('wrong'); });
+
+  // ---------------- key handling ----------------
+  document.addEventListener('keydown', function (e) {
+    // モーダルでキー選択待ちの場合はそれを優先
+    if (!el.modalBackdrop.classList.contains('qm-hidden')) {
+      if (state.picking) {
+        var m = /^Key([A-Z])$/.exec(e.code);
+        var letter = m ? m[1] : (/^[a-zA-Z]$/.test(e.key) ? e.key.toUpperCase() : null);
+        if (letter) {
+          e.preventDefault();
+          finishKeyPicking(letter);
+        }
+      }
+      return; // モーダル表示中は他のキー操作を無効化
+    }
+
+    var tag = e.target && e.target.tagName ? e.target.tagName.toLowerCase() : '';
+    if (tag === 'input' || tag === 'textarea') return;
+
+    if (e.code === 'Space' || e.key === ' ') {
+      e.preventDefault();
+      if (!state.quizActive) startQuestion();
+      return;
+    }
+
+    var km = /^Key([A-Z])$/.exec(e.code);
+    var pressedLetter = km ? km[1] : (/^[a-zA-Z]$/.test(e.key) ? e.key.toUpperCase() : null);
+    if (!pressedLetter) return;
+    for (var i = 0; i < state.players.length; i++) {
+      if (state.players[i].key === pressedLetter) {
+        handleBuzz(state.players[i].id);
+        break;
+      }
+    }
+  });
+
+  // ---------------- rendering ----------------
+  function renderBuzzStage() {
+    var stage = el.buzzStage;
+    stage.classList.remove('locked', 'solved');
+
+    if (!state.quizActive && !state.solved && state.currentId === null && state.queue.length === 0 && !hasAnyRoundActivity()) {
+      stage.innerHTML = '<div class="qm-buzz-idle">「問題を始める」を押すと解答受付が始まります</div>';
+      el.judgeRow.classList.add('qm-hidden');
+      return;
+    }
+
+    if (state.currentId !== null) {
+      stage.classList.add('locked');
+      var p = findPlayer(state.currentId);
+      var entry = null;
+      for (var i = 0; i < state.queue.length; i++) { if (state.queue[i].id === state.currentId) entry = state.queue[i]; }
+      var timeStr = entry ? entry.time.toFixed(2) : '0.00';
+      stage.innerHTML =
+        '<div class="qm-buzz-name">' + escapeHtml(p ? p.name : '') + ' さん</div>' +
+        '<div class="qm-buzz-time">' + timeStr + ' 秒</div>';
+      el.judgeRow.classList.remove('qm-hidden');
+      return;
+    }
+
+    if (state.solved) {
+      stage.classList.add('solved');
+      stage.innerHTML = '<div class="qm-buzz-result-tag">🎉 正解が確定しました。次の問題は「問題を始める」を押してください。</div>';
+      el.judgeRow.classList.add('qm-hidden');
+      return;
+    }
+
+    if (state.quizActive) {
+      var elapsedNow = (performance.now() - state.startTime) / 1000;
+      stage.innerHTML =
+        '<div class="qm-buzz-clock">' + elapsedNow.toFixed(2) + '</div>' +
+        '<div class="qm-buzz-clock-label">秒経過 ー 解答受付中</div>';
+      el.judgeRow.classList.add('qm-hidden');
+      return;
+    }
+
+    stage.innerHTML = '<div class="qm-buzz-idle">「問題を始める」を押すと解答受付が始まります</div>';
+    el.judgeRow.classList.add('qm-hidden');
+  }
+
+  function hasAnyRoundActivity() {
+    return Object.keys(state.buzzedSet).length > 0;
+  }
+
+  function renderBuzzerGrid() {
+    if (state.players.length === 0) {
+      el.buzzerGrid.classList.add('qm-hidden');
+      el.emptyState.classList.remove('qm-hidden');
+      el.scoreboardCard.classList.add('qm-hidden');
+      return;
+    }
+    el.emptyState.classList.add('qm-hidden');
+    el.buzzerGrid.classList.remove('qm-hidden');
+    el.scoreboardCard.classList.remove('qm-hidden');
+
+    var html = '';
+    state.players.forEach(function (p) {
+      var cls = 'qm-buzzer';
+      var order = null;
+      if (state.currentId === p.id) {
+        cls += ' active';
+      } else if (state.buzzedSet[p.id] && state.wrongSet[p.id]) {
+        cls += ' out';
+      } else if (state.buzzedSet[p.id]) {
+        cls += ' queued';
+        for (var i = 0; i < state.queue.length; i++) {
+          if (state.queue[i].id === p.id) order = i + 1;
+        }
+      }
+      html += '<button type="button" class="' + cls + '" data-id="' + p.id + '">' +
+        (order ? '<span class="qm-buzzer-order">' + order + '</span>' : '') +
+        '<span>' + escapeHtml(p.name) + '</span>' +
+        '<span class="qm-buzzer-key">' + p.key + '</span>' +
+        '</button>';
+    });
+    el.buzzerGrid.innerHTML = html;
+  }
+
+  function renderScoreboard() {
+    var html = '';
+    state.players.forEach(function (p) {
+      html += '<div class="qm-participant-row' + (state.currentId === p.id ? ' is-turn' : '') + '">' +
+        '<span class="qm-participant-key">' + p.key + '</span>' +
+        '<span class="qm-participant-name">' + escapeHtml(p.name) + '</span>' +
+        '<div class="qm-score-control">' +
+        '<button class="qm-score-btn" type="button" data-action="score-dec" data-id="' + p.id + '" aria-label="点数を減らす">−</button>' +
+        '<span class="qm-score-value">' + p.score + '</span>' +
+        '<button class="qm-score-btn" type="button" data-action="score-inc" data-id="' + p.id + '" aria-label="点数を増やす">＋</button>' +
+        '</div>' +
+        '<button class="qm-participant-remove" type="button" data-action="remove" data-id="' + p.id + '" aria-label="削除">✕</button>' +
+        '</div>';
+    });
+    el.scoreboardList.innerHTML = html;
+  }
+
+  function renderAll() {
+    renderBuzzStage();
+    renderBuzzerGrid();
+    renderScoreboard();
+    el.btnStart.disabled = state.quizActive;
+  }
+
+  el.buzzerGrid.addEventListener('click', function (e) {
+    var btn = e.target.closest('.qm-buzzer');
+    if (!btn) return;
+    handleBuzz(btn.getAttribute('data-id'));
+  });
+
+  el.scoreboardList.addEventListener('click', function (e) {
+    var actionEl = e.target.closest('[data-action]');
+    if (!actionEl) return;
+    var id = actionEl.getAttribute('data-id');
+    var action = actionEl.getAttribute('data-action');
+    var p = findPlayer(id);
+    if (!p) return;
+    if (action === 'score-inc') { p.score += 1; renderScoreboard(); }
+    else if (action === 'score-dec') { p.score -= 1; renderScoreboard(); }
+    else if (action === 'remove') {
+      state.players = state.players.filter(function (x) { return x.id !== id; });
+      if (state.currentId === id) state.currentId = null;
+      renderAll();
+    }
+  });
+
+  // ---- init ----
+  renderAll();
+})();
+</script>
+</body>
+</html>
