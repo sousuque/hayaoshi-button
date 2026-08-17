@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>早押しボタン</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Yusei+Magic&display=swap" rel="stylesheet">
 <style>
@@ -46,6 +47,8 @@ body { margin: 0; }
   letter-spacing: 0.02em;
 }
 .qm-hint { font-size: 12px; color: var(--muted); margin: 0 0 20px 4px; }
+.qm-sound-toggle { flex-shrink: 0; }
+.qm-sound-toggle.is-muted { border-color: var(--red); color: #ff8385; }
 
 .qm-card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 24px; margin-bottom: 20px; }
 
@@ -334,6 +337,7 @@ body { margin: 0; }
   <div class="qm-wrap">
     <div class="qm-header">
       <h1 class="qm-title">早押しボタン</h1>
+      <button class="qm-btn qm-sound-toggle" type="button" id="btn-sound-toggle" aria-pressed="false">🔊 音：オン</button>
     </div>
     <p class="qm-hint">スペースキーで「問題を始める」／「問題を終わる」を切り替えられます。プレイヤーはボタンクリックか割り当てられたキーで解答権を得ます。解答権発生後は ← キーで正解、→ キーで誤答と判定できます。</p>
 
@@ -426,6 +430,7 @@ body { margin: 0; }
     scoreMode: 'score',      // 'score' | 'count'
     correctPoints: 1,        // 「点数」モードで正解時に加算する点数
     wrongPoints: 1,           // 「点数」モードで誤答時に減算する点数
+    soundOn: true,            // 効果音のオン/オフ
     quizActive: false,      // 解答受付中かどうか（開始〜正解 まで）
     startTime: null,        // performance.now() at start
     lastElapsed: 0,          // 直近の解答権獲得時のタイム
@@ -475,6 +480,7 @@ body { margin: 0; }
     btnAddPlayer: document.getElementById('btn-add-player'),
     btnStart: document.getElementById('btn-start'),
     btnEnd: document.getElementById('btn-end'),
+    btnSoundToggle: document.getElementById('btn-sound-toggle'),
     ruleSelect: document.getElementById('rule-select'),
     scoreModeSelect: document.getElementById('score-mode-select'),
     scorePointsRow: document.getElementById('score-points-row'),
@@ -516,12 +522,29 @@ body { margin: 0; }
   }
 
   function playSound(audioEl) {
-    if (!audioEl) return;
+    if (!audioEl || !state.soundOn) return;
     try {
       audioEl.currentTime = 0;
       audioEl.play();
     } catch (e) { /* 再生できない環境では無視 */ }
   }
+
+  function updateSoundToggleUI() {
+    if (state.soundOn) {
+      el.btnSoundToggle.textContent = '🔊 音：オン';
+      el.btnSoundToggle.classList.remove('is-muted');
+      el.btnSoundToggle.setAttribute('aria-pressed', 'false');
+    } else {
+      el.btnSoundToggle.textContent = '🔇 音：オフ';
+      el.btnSoundToggle.classList.add('is-muted');
+      el.btnSoundToggle.setAttribute('aria-pressed', 'true');
+    }
+  }
+  el.btnSoundToggle.addEventListener('click', function () {
+    state.soundOn = !state.soundOn;
+    updateSoundToggleUI();
+  });
+  updateSoundToggleUI();
 
   state.rule = el.ruleSelect.value;
   el.ruleSelect.addEventListener('change', function () {
