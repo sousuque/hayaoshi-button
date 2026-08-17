@@ -4,7 +4,6 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>早押しボタン</title>
-<link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Yusei+Magic&display=swap" rel="stylesheet">
 <style>
@@ -219,6 +218,19 @@ body { margin: 0; }
 .qm-scoreboard-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
 .qm-scoreboard-title { font-size: 15px; margin: 0; color: var(--text); }
 .qm-score-mode-select { width: auto; min-width: 130px; padding: 6px 10px; font-size: 13px; }
+.qm-score-points-row { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin: 0 0 14px; font-size: 13px; color: var(--muted); }
+.qm-score-points-label { display: flex; align-items: center; gap: 2px; }
+.qm-points-input {
+  width: 48px;
+  margin: 0 4px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  text-align: center;
+  font-size: 13px;
+}
 .qm-participant-row {
   display: flex;
   align-items: center;
@@ -368,6 +380,10 @@ body { margin: 0; }
           <option value="count">n○ n✕</option>
         </select>
       </div>
+      <div class="qm-score-points-row" id="score-points-row">
+        <label class="qm-score-points-label">正解 +<input type="number" class="qm-points-input" id="correct-points-input" min="0" step="1" value="1">点</label>
+        <label class="qm-score-points-label">誤答 −<input type="number" class="qm-points-input" id="wrong-points-input" min="0" step="1" value="1">点</label>
+      </div>
       <div id="scoreboard-list"></div>
       <div class="qm-toolbar" style="margin-top: 14px;">
         <button class="qm-btn" type="button" id="btn-clear-scores">点数をクリア</button>
@@ -408,6 +424,8 @@ body { margin: 0; }
     players: [],           // {id, name, key, score}
     rule: 'single',         // 'single' | 'endless' | 'rest'
     scoreMode: 'score',      // 'score' | 'count'
+    correctPoints: 1,        // 「点数」モードで正解時に加算する点数
+    wrongPoints: 1,           // 「点数」モードで誤答時に減算する点数
     quizActive: false,      // 解答受付中かどうか（開始〜正解 まで）
     startTime: null,        // performance.now() at start
     lastElapsed: 0,          // 直近の解答権獲得時のタイム
@@ -459,6 +477,9 @@ body { margin: 0; }
     btnEnd: document.getElementById('btn-end'),
     ruleSelect: document.getElementById('rule-select'),
     scoreModeSelect: document.getElementById('score-mode-select'),
+    scorePointsRow: document.getElementById('score-points-row'),
+    correctPointsInput: document.getElementById('correct-points-input'),
+    wrongPointsInput: document.getElementById('wrong-points-input'),
     audioBuzz: document.getElementById('audio-buzz'),
     audioCorrect: document.getElementById('audio-correct'),
     audioWrong: document.getElementById('audio-wrong'),
@@ -508,9 +529,32 @@ body { margin: 0; }
   });
 
   state.scoreMode = el.scoreModeSelect.value;
+  function updateScorePointsRowVisibility() {
+    if (state.scoreMode === 'score') {
+      el.scorePointsRow.classList.remove('qm-hidden');
+    } else {
+      el.scorePointsRow.classList.add('qm-hidden');
+    }
+  }
   el.scoreModeSelect.addEventListener('change', function () {
     state.scoreMode = el.scoreModeSelect.value;
+    updateScorePointsRowVisibility();
     renderScoreboard();
+  });
+  updateScorePointsRowVisibility();
+
+  function parsePoints(input, fallback) {
+    var v = parseFloat(input.value);
+    if (isNaN(v) || v < 0) v = fallback;
+    return v;
+  }
+  el.correctPointsInput.addEventListener('change', function () {
+    state.correctPoints = parsePoints(el.correctPointsInput, state.correctPoints);
+    el.correctPointsInput.value = state.correctPoints;
+  });
+  el.wrongPointsInput.addEventListener('change', function () {
+    state.wrongPoints = parsePoints(el.wrongPointsInput, state.wrongPoints);
+    el.wrongPointsInput.value = state.wrongPoints;
   });
 
   // ---------------- modal (add player) ----------------
@@ -684,7 +728,7 @@ body { margin: 0; }
     if (!p) return;
 
     if (result === 'correct') {
-      p.score += 1;
+      p.score += state.correctPoints;
       p.correct = (p.correct || 0) + 1;
       state.quizActive = false;
       state.solved = true;
@@ -698,7 +742,7 @@ body { margin: 0; }
     }
 
     // 誤答
-    p.score -= 1;
+    p.score -= state.wrongPoints;
     p.wrong = (p.wrong || 0) + 1;
     playSound(el.audioWrong);
 
