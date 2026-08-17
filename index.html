@@ -529,17 +529,6 @@ body { margin: 0; }
     } catch (e) { /* 再生できない環境では無視 */ }
   }
 
-  function playSoundOverlap(audioEl) {
-    // 複数プレイヤーがほぼ同時に押した場合でも重ねて再生できるよう、都度クローンして再生する
-    if (!audioEl || !state.soundOn) return;
-    try {
-      var clone = audioEl.cloneNode(true);
-      clone.volume = audioEl.volume;
-      clone.play();
-      clone.addEventListener('ended', function () { clone.remove && clone.remove(); });
-    } catch (e) { /* 再生できない環境では無視 */ }
-  }
-
   function updateSoundToggleUI() {
     if (state.soundOn) {
       el.btnSoundToggle.textContent = '🔊 音：オン';
@@ -717,7 +706,8 @@ body { margin: 0; }
       if (queueHasId(id)) return; // 既に待機列にいる
       var elapsedE = (performance.now() - state.startTime) / 1000;
       state.buzzedSet[id] = true;
-      playSoundOverlap(el.audioBuzz);
+      playSound(el.audioBuzz);
+      var pe = findPlayer(id);
       if (state.currentId === null) {
         state.currentId = id;
         state.lastElapsed = elapsedE;
@@ -741,7 +731,7 @@ body { margin: 0; }
     state.currentId = id;
     if (state.rule === 'single') state.singleLocked = true;
 
-    playSoundOverlap(el.audioBuzz);
+    playSound(el.audioBuzz);
 
     var p = findPlayer(id);
     setStatus(p ? p.name + ' さんが解答権を得ました。' : '', 'red');
