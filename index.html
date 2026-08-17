@@ -216,7 +216,9 @@ body { margin: 0; }
 }
 
 /* ---- scoreboard ---- */
-.qm-scoreboard-title { font-size: 15px; margin: 0 0 14px; color: var(--text); }
+.qm-scoreboard-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+.qm-scoreboard-title { font-size: 15px; margin: 0; color: var(--text); }
+.qm-score-mode-select { width: auto; min-width: 130px; padding: 6px 10px; font-size: 13px; }
 .qm-participant-row {
   display: flex;
   align-items: center;
@@ -256,6 +258,20 @@ body { margin: 0; }
 }
 .qm-score-btn:hover { border-color: var(--gold); }
 .qm-score-value { min-width: 26px; text-align: center; font-size: 14px; font-weight: 700; color: var(--gold); }
+.qm-count-control { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.qm-count-value {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  user-select: none;
+}
+.qm-count-value:hover { border-color: var(--gold); }
+.qm-count-value.qm-count-correct { color: var(--gold); }
+.qm-count-value.qm-count-wrong { color: var(--red); }
 .qm-participant-remove {
   background: none;
   border: none;
@@ -345,8 +361,18 @@ body { margin: 0; }
     </div>
 
     <div class="qm-card qm-hidden" id="scoreboard-card">
-      <h2 class="qm-scoreboard-title">得点板</h2>
+      <div class="qm-scoreboard-header">
+        <h2 class="qm-scoreboard-title">得点板</h2>
+        <select class="qm-input qm-score-mode-select" id="score-mode-select">
+          <option value="score">点数</option>
+          <option value="count">n○ n✕</option>
+        </select>
+      </div>
       <div id="scoreboard-list"></div>
+      <div class="qm-toolbar" style="margin-top: 14px;">
+        <button class="qm-btn" type="button" id="btn-clear-scores">点数をクリア</button>
+        <button class="qm-btn qm-btn-danger" type="button" id="btn-clear-players">プレイヤーをクリア</button>
+      </div>
     </div>
   </div>
 </div>
@@ -381,6 +407,7 @@ body { margin: 0; }
   var state = {
     players: [],           // {id, name, key, score}
     rule: 'single',         // 'single' | 'endless' | 'rest'
+    scoreMode: 'score',      // 'score' | 'count'
     quizActive: false,      // 解答受付中かどうか（開始〜正解 まで）
     startTime: null,        // performance.now() at start
     lastElapsed: 0,          // 直近の解答権獲得時のタイム
@@ -399,11 +426,39 @@ body { margin: 0; }
 
   function genId() { return 'p' + (uidSeed++) + '-' + Date.now().toString(36); }
 
+  var STORAGE_KEY = 'hayaoshi-buzzer-players-v1';
+
+  function savePlayers() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state.players));
+    } catch (e) { /* localStorageが使えない環境では無視 */ }
+  }
+
+  function loadPlayers() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      var arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return;
+      state.players = arr.filter(function (p) { return p && p.name && p.key; }).map(function (p) {
+        return {
+          id: p.id || genId(),
+          name: String(p.name),
+          key: String(p.key),
+          score: Number(p.score) || 0,
+          correct: Number(p.correct) || 0,
+          wrong: Number(p.wrong) || 0
+        };
+      });
+    } catch (e) { /* 読み込みに失敗した場合は無視 */ }
+  }
+
   var el = {
     btnAddPlayer: document.getElementById('btn-add-player'),
     btnStart: document.getElementById('btn-start'),
     btnEnd: document.getElementById('btn-end'),
     ruleSelect: document.getElementById('rule-select'),
+    scoreModeSelect: document.getElementById('score-mode-select'),
     audioBuzz: document.getElementById('audio-buzz'),
     audioCorrect: document.getElementById('audio-correct'),
     audioWrong: document.getElementById('audio-wrong'),
@@ -415,6 +470,8 @@ body { margin: 0; }
     buzzerGrid: document.getElementById('buzzer-grid'),
     emptyState: document.getElementById('empty-state'),
     scoreboardCard: document.getElementById('scoreboard-card'),
+    btnClearScores: document.getElementById('btn-clear-scores'),
+    btnClearPlayers: document.getElementById('btn-clear-players'),
     scoreboardList: document.getElementById('scoreboard-list'),
     modalBackdrop: document.getElementById('modal-backdrop'),
     modalNameInput: document.getElementById('modal-name-input'),
@@ -448,6 +505,12 @@ body { margin: 0; }
   state.rule = el.ruleSelect.value;
   el.ruleSelect.addEventListener('change', function () {
     state.rule = el.ruleSelect.value;
+  });
+
+  state.scoreMode = el.scoreModeSelect.value;
+  el.scoreModeSelect.addEventListener('change', function () {
+    state.scoreMode = el.scoreModeSelect.value;
+    renderScoreboard();
   });
 
   // ---------------- modal (add player) ----------------
@@ -499,7 +562,7 @@ body { margin: 0; }
       el.modalError.textContent = '使用するキーを選択してください。';
       return;
     }
-    state.players.push({ id: genId(), name: name, key: pickedKey, score: 0 });
+    state.players.push({ id: genId(), name: name, key: pickedKey, score: 0, correct: 0, wrong: 0 });
     closeModal();
     setStatus('「' + name + '」を追加しました。', '');
     renderAll();
@@ -622,6 +685,7 @@ body { margin: 0; }
 
     if (result === 'correct') {
       p.score += 1;
+      p.correct = (p.correct || 0) + 1;
       state.quizActive = false;
       state.solved = true;
       state.roundEnded = false;
@@ -635,6 +699,7 @@ body { margin: 0; }
 
     // 誤答
     p.score -= 1;
+    p.wrong = (p.wrong || 0) + 1;
     playSound(el.audioWrong);
 
     if (state.rule === 'single') {
@@ -802,18 +867,30 @@ body { margin: 0; }
   function renderScoreboard() {
     var html = '';
     state.players.forEach(function (p) {
+      var controlHtml;
+      if (state.scoreMode === 'count') {
+        controlHtml =
+          '<div class="qm-count-control">' +
+          '<span class="qm-count-value qm-count-correct" data-count="correct" data-id="' + p.id + '" title="クリックで+1 / 右クリックで-1">' + (p.correct || 0) + '○</span>' +
+          '<span class="qm-count-value qm-count-wrong" data-count="wrong" data-id="' + p.id + '" title="クリックで+1 / 右クリックで-1">' + (p.wrong || 0) + '✕</span>' +
+          '</div>';
+      } else {
+        controlHtml =
+          '<div class="qm-score-control">' +
+          '<button class="qm-score-btn" type="button" data-action="score-dec" data-id="' + p.id + '" aria-label="点数を減らす">−</button>' +
+          '<span class="qm-score-value">' + p.score + '</span>' +
+          '<button class="qm-score-btn" type="button" data-action="score-inc" data-id="' + p.id + '" aria-label="点数を増やす">＋</button>' +
+          '</div>';
+      }
       html += '<div class="qm-participant-row' + (state.currentId === p.id ? ' is-turn' : '') + '">' +
         '<span class="qm-participant-key">' + p.key + '</span>' +
         '<span class="qm-participant-name">' + escapeHtml(p.name) + '</span>' +
-        '<div class="qm-score-control">' +
-        '<button class="qm-score-btn" type="button" data-action="score-dec" data-id="' + p.id + '" aria-label="点数を減らす">−</button>' +
-        '<span class="qm-score-value">' + p.score + '</span>' +
-        '<button class="qm-score-btn" type="button" data-action="score-inc" data-id="' + p.id + '" aria-label="点数を増やす">＋</button>' +
-        '</div>' +
+        controlHtml +
         '<button class="qm-participant-remove" type="button" data-action="remove" data-id="' + p.id + '" aria-label="削除">✕</button>' +
         '</div>';
     });
     el.scoreboardList.innerHTML = html;
+    savePlayers();
   }
 
   function renderAll() {
@@ -830,6 +907,17 @@ body { margin: 0; }
   });
 
   el.scoreboardList.addEventListener('click', function (e) {
+    var countEl = e.target.closest('[data-count]');
+    if (countEl) {
+      var cid = countEl.getAttribute('data-id');
+      var cp = findPlayer(cid);
+      if (cp) {
+        var field = countEl.getAttribute('data-count');
+        cp[field] = (cp[field] || 0) + 1;
+        renderScoreboard();
+      }
+      return;
+    }
     var actionEl = e.target.closest('[data-action]');
     if (!actionEl) return;
     var id = actionEl.getAttribute('data-id');
@@ -845,7 +933,38 @@ body { margin: 0; }
     }
   });
 
+  el.scoreboardList.addEventListener('contextmenu', function (e) {
+    var countEl = e.target.closest('[data-count]');
+    if (!countEl) return;
+    e.preventDefault();
+    var id = countEl.getAttribute('data-id');
+    var p = findPlayer(id);
+    if (!p) return;
+    var field = countEl.getAttribute('data-count');
+    p[field] = Math.max(0, (p[field] || 0) - 1);
+    renderScoreboard();
+  });
+
+  el.btnClearScores.addEventListener('click', function () {
+    if (state.players.length === 0) return;
+    if (!window.confirm('すべてのプレイヤーの点数・正誤カウントをクリアします。よろしいですか？')) return;
+    state.players.forEach(function (p) { p.score = 0; p.correct = 0; p.wrong = 0; });
+    setStatus('点数をクリアしました。', '');
+    renderAll();
+  });
+
+  el.btnClearPlayers.addEventListener('click', function () {
+    if (state.players.length === 0) return;
+    if (!window.confirm('登録されているプレイヤーを全員削除します。よろしいですか？')) return;
+    if (state.quizActive) endQuestion();
+    state.players = [];
+    state.currentId = null;
+    setStatus('プレイヤーをクリアしました。', '');
+    renderAll();
+  });
+
   // ---- init ----
+  loadPlayers();
   renderAll();
 })();
 </script>
