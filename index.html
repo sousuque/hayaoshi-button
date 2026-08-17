@@ -4,7 +4,6 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>早押しボタン</title>
-<link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Yusei+Magic&display=swap" rel="stylesheet">
 <style>
@@ -310,9 +309,21 @@ body { margin: 0; }
     <p class="qm-hint">スペースキーでも「問題を始める」を実行できます。プレイヤーはボタンクリックか割り当てられたキーで解答権を得ます。</p>
 
     <div class="qm-card">
+      <div class="qm-field" style="margin-bottom:0;">
+        <label class="qm-label" for="rule-select">ルール</label>
+        <select class="qm-input" id="rule-select" style="width:auto; min-width:260px;">
+          <option value="single">シングルチャンス</option>
+          <option value="endless">エンドレスチャンス</option>
+          <option value="rest">他の人が誤答するまで休み</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="qm-card">
       <div class="qm-toolbar">
         <button class="qm-btn qm-btn-primary" type="button" id="btn-add-player">＋ プレイヤーを追加</button>
         <button class="qm-btn qm-btn-primary qm-btn-lg" type="button" id="btn-start">▶ 問題を始める</button>
+        <button class="qm-btn qm-btn-danger qm-btn-lg" type="button" id="btn-end">■ 問題を終わる</button>
       </div>
       <div class="qm-status-line" id="status-line"></div>
     </div>
@@ -358,19 +369,27 @@ body { margin: 0; }
   </div>
 </div>
 
+<audio id="audio-buzz" src="button.mp3" preload="auto"></audio>
+<audio id="audio-correct" src="seikai.mp3" preload="auto"></audio>
+<audio id="audio-wrong" src="gotou.mp3" preload="auto"></audio>
+
 <script>
 (function () {
   'use strict';
 
   var state = {
     players: [],           // {id, name, key, score}
+    rule: 'single',         // 'single' | 'endless' | 'rest'
     quizActive: false,      // 解答受付中かどうか（開始〜正解 まで）
     startTime: null,        // performance.now() at start
-    queue: [],              // [{id, time}] buzz順
-    buzzedSet: {},           // id -> true (この問題で一度でも押した)
-    wrongSet: {},            // id -> true (この問題で誤答済み)
+    lastElapsed: 0,          // 直近の解答権獲得時のタイム
+    buzzedSet: {},           // id -> true (この問題で一度でも押した。表示用)
+    restingSet: {},          // id -> true (「他の人が誤答するまで休み」で休み中)
+    singleLocked: false,     // 「シングルチャンス」で誰かが一度押した後 true
     currentId: null,         // 解答権を持つプレイヤーのid
+    queue: [],                // [{id, time}] エンドレスチャンスでの解答待ち行列
     solved: false,           // 正解が出て終了した
+    roundEnded: false,       // 誤答/終了などで、この問題の受付が終わった（正解ではない）
     picking: false           // モーダル内でキー選択待ちか
   };
   var pickedKey = null;
@@ -382,6 +401,11 @@ body { margin: 0; }
   var el = {
     btnAddPlayer: document.getElementById('btn-add-player'),
     btnStart: document.getElementById('btn-start'),
+    btnEnd: document.getElementById('btn-end'),
+    ruleSelect: document.getElementById('rule-select'),
+    audioBuzz: document.getElementById('audio-buzz'),
+    audioCorrect: document.getElementById('audio-correct'),
+    audioWrong: document.getElementById('audio-wrong'),
     statusLine: document.getElementById('status-line'),
     buzzStage: document.getElementById('buzz-stage'),
     judgeRow: document.getElementById('judge-row'),
@@ -411,6 +435,19 @@ body { margin: 0; }
     }
     return null;
   }
+
+  function playSound(audioEl) {
+    if (!audioEl) return;
+    try {
+      audioEl.currentTime = 0;
+      audioEl.play();
+    } catch (e) { /* 再生できない環境では無視 */ }
+  }
+
+  state.rule = el.ruleSelect.value;
+  el.ruleSelect.addEventListener('change', function () {
+    state.rule = el.ruleSelect.value;
+  });
 
   // ---------------- modal (add player) ----------------
   function openModal() {
@@ -491,14 +528,33 @@ body { margin: 0; }
     }
     state.quizActive = true;
     state.solved = false;
+    state.roundEnded = false;
     state.startTime = performance.now();
-    state.queue = [];
+    state.lastElapsed = 0;
     state.buzzedSet = {};
-    state.wrongSet = {};
+    state.restingSet = {};
+    state.singleLocked = false;
     state.currentId = null;
+    state.queue = [];
     setStatus('解答受付中…', 'gold');
     renderAll();
     runClock();
+  }
+
+  function endQuestion() {
+    if (clockRAF) { cancelAnimationFrame(clockRAF); clockRAF = null; }
+    state.quizActive = false;
+    state.solved = false;
+    state.roundEnded = false;
+    state.startTime = null;
+    state.lastElapsed = 0;
+    state.buzzedSet = {};
+    state.restingSet = {};
+    state.singleLocked = false;
+    state.currentId = null;
+    state.queue = [];
+    setStatus('問題を終了しました。', '');
+    renderAll();
   }
 
   function runClock() {
@@ -513,48 +569,106 @@ body { margin: 0; }
 
   function handleBuzz(id) {
     if (!state.quizActive) return;
-    if (state.buzzedSet[id]) return; // 既にこの問題で押した
-    var elapsed = (performance.now() - state.startTime) / 1000;
-    state.buzzedSet[id] = true;
-    state.queue.push({ id: id, time: elapsed });
-    if (state.currentId === null) {
-      state.currentId = id;
-      var p = findPlayer(id);
-      setStatus(p ? p.name + ' さんが解答権を得ました。' : '', 'red');
+
+    if (state.rule === 'endless') {
+      if (id === state.currentId) return; // 現在解答中の本人
+      if (queueHasId(id)) return; // 既に待機列にいる
+      var elapsedE = (performance.now() - state.startTime) / 1000;
+      state.buzzedSet[id] = true;
+      playSound(el.audioBuzz);
+      var pe = findPlayer(id);
+      if (state.currentId === null) {
+        state.currentId = id;
+        state.lastElapsed = elapsedE;
+        setStatus(pe ? pe.name + ' さんが解答権を得ました。' : '', 'red');
+      } else {
+        state.queue.push({ id: id, time: elapsedE });
+        setStatus(pe ? pe.name + ' さんが解答待ちに加わりました。' : '', '');
+      }
+      renderAll();
+      return;
     }
+
+    if (state.currentId !== null) return; // 誰かが解答中は割り込めない
+
+    if (state.rule === 'single' && state.singleLocked) return; // 既に誰かが押した
+    if (state.rule === 'rest' && state.restingSet[id]) return; // 休み中
+
+    var elapsed = (performance.now() - state.startTime) / 1000;
+    state.lastElapsed = elapsed;
+    state.buzzedSet[id] = true;
+    state.currentId = id;
+    if (state.rule === 'single') state.singleLocked = true;
+
+    playSound(el.audioBuzz);
+
+    var p = findPlayer(id);
+    setStatus(p ? p.name + ' さんが解答権を得ました。' : '', 'red');
     renderAll();
+  }
+
+  function queueHasId(id) {
+    for (var i = 0; i < state.queue.length; i++) {
+      if (state.queue[i].id === id) return true;
+    }
+    return false;
   }
 
   function judge(result) {
     if (!state.quizActive || state.currentId === null) return;
     var p = findPlayer(state.currentId);
     if (!p) return;
+
     if (result === 'correct') {
       p.score += 1;
       state.quizActive = false;
       state.solved = true;
+      state.roundEnded = false;
+      state.currentId = null;
+      state.queue = [];
+      playSound(el.audioCorrect);
       setStatus(p.name + ' さん正解！ +1点', 'gold');
-    } else {
-      p.score -= 1;
-      state.wrongSet[state.currentId] = true;
-      // キューの先頭（現在の回答者）を取り除く
-      if (state.queue.length && state.queue[0].id === state.currentId) {
-        state.queue.shift();
-      }
+      renderAll();
+      return;
+    }
+
+    // 誤答
+    p.score -= 1;
+    playSound(el.audioWrong);
+
+    if (state.rule === 'single') {
+      // シングルチャンス: 誤答でもそのまま問題終了
+      state.quizActive = false;
+      state.solved = false;
+      state.roundEnded = true;
+      state.currentId = null;
+      setStatus(p.name + ' さん誤答… -1点。この問題は終了しました。', 'red');
+    } else if (state.rule === 'endless') {
+      // エンドレスチャンス: 待機列がいれば押した順に次の解答権へ、いなければ再び受付
       if (state.queue.length > 0) {
-        state.currentId = state.queue[0].id;
-        var next = findPlayer(state.currentId);
-        setStatus(p.name + ' さん誤答… -1点。次は ' + (next ? next.name : '') + ' さんの解答権です。', 'red');
+        var next = state.queue.shift();
+        state.currentId = next.id;
+        state.lastElapsed = next.time;
+        var np = findPlayer(next.id);
+        setStatus(p.name + ' さん誤答… -1点。次は ' + (np ? np.name : '') + ' さんの解答権です。', 'red');
       } else {
         state.currentId = null;
         setStatus(p.name + ' さん誤答… -1点。解答受付中…', 'gold');
         runClock();
       }
+    } else {
+      // 他の人が誤答するまで休み
+      state.restingSet = {};
+      state.restingSet[state.currentId] = true;
+      state.currentId = null;
+      setStatus(p.name + ' さん誤答… -1点。他の人が誤答するまで休みです。解答受付中…', 'gold');
+      runClock();
     }
     renderAll();
   }
 
   el.btnStart.addEventListener('click', startQuestion);
+  el.btnEnd.addEventListener('click', endQuestion);
   el.btnCorrect.addEventListener('click', function () { judge('correct'); });
   el.btnWrong.addEventListener('click', function () { judge('wrong'); });
 
@@ -598,18 +712,10 @@ body { margin: 0; }
     var stage = el.buzzStage;
     stage.classList.remove('locked', 'solved');
 
-    if (!state.quizActive && !state.solved && state.currentId === null && state.queue.length === 0 && !hasAnyRoundActivity()) {
-      stage.innerHTML = '<div class="qm-buzz-idle">「問題を始める」を押すと解答受付が始まります</div>';
-      el.judgeRow.classList.add('qm-hidden');
-      return;
-    }
-
     if (state.currentId !== null) {
       stage.classList.add('locked');
       var p = findPlayer(state.currentId);
-      var entry = null;
-      for (var i = 0; i < state.queue.length; i++) { if (state.queue[i].id === state.currentId) entry = state.queue[i]; }
-      var timeStr = entry ? entry.time.toFixed(2) : '0.00';
+      var timeStr = state.lastElapsed.toFixed(2);
       stage.innerHTML =
         '<div class="qm-buzz-name">' + escapeHtml(p ? p.name : '') + ' さん</div>' +
         '<div class="qm-buzz-time">' + timeStr + ' 秒</div>';
@@ -620,6 +726,12 @@ body { margin: 0; }
     if (state.solved) {
       stage.classList.add('solved');
       stage.innerHTML = '<div class="qm-buzz-result-tag">🎉 正解が確定しました。次の問題は「問題を始める」を押してください。</div>';
+      el.judgeRow.classList.add('qm-hidden');
+      return;
+    }
+
+    if (state.roundEnded) {
+      stage.innerHTML = '<div class="qm-buzz-idle">この問題は終了しました。次の問題は「問題を始める」を押してください。</div>';
       el.judgeRow.classList.add('qm-hidden');
       return;
     }
@@ -635,10 +747,6 @@ body { margin: 0; }
 
     stage.innerHTML = '<div class="qm-buzz-idle">「問題を始める」を押すと解答受付が始まります</div>';
     el.judgeRow.classList.add('qm-hidden');
-  }
-
-  function hasAnyRoundActivity() {
-    return Object.keys(state.buzzedSet).length > 0;
   }
 
   function renderBuzzerGrid() {
@@ -658,13 +766,15 @@ body { margin: 0; }
       var order = null;
       if (state.currentId === p.id) {
         cls += ' active';
-      } else if (state.buzzedSet[p.id] && state.wrongSet[p.id]) {
+      } else if (state.quizActive && state.rule === 'single' && state.singleLocked) {
         cls += ' out';
-      } else if (state.buzzedSet[p.id]) {
-        cls += ' queued';
+      } else if (state.quizActive && state.rule === 'rest' && state.restingSet[p.id]) {
+        cls += ' out';
+      } else if (state.quizActive && state.rule === 'endless') {
         for (var i = 0; i < state.queue.length; i++) {
-          if (state.queue[i].id === p.id) order = i + 1;
+          if (state.queue[i].id === p.id) { order = i + 1; break; }
         }
+        if (order) cls += ' queued';
       }
       html += '<button type="button" class="' + cls + '" data-id="' + p.id + '">' +
         (order ? '<span class="qm-buzzer-order">' + order + '</span>' : '') +
