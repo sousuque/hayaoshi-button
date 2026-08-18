@@ -298,6 +298,45 @@ body { margin: 0; }
 }
 .qm-participant-remove:hover { color: #ff8385; }
 
+/* ---- kebab menu ---- */
+.qm-kebab-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.qm-kebab-btn:hover, .qm-kebab-btn.is-open { color: var(--text); background: var(--bg); }
+.qm-kebab-menu {
+  position: fixed;
+  min-width: 130px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+  z-index: 60;
+}
+.qm-kebab-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  padding: 9px 10px;
+  font-family: 'Yusei Magic', sans-serif;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 7px;
+}
+.qm-kebab-menu-item:hover { background: var(--bg); }
+.qm-kebab-menu-item.danger { color: #ff8385; }
+
 /* ---- modal ---- */
 .qm-modal-backdrop {
   position: fixed;
@@ -399,7 +438,7 @@ body { margin: 0; }
 
 <div class="qm-modal-backdrop qm-hidden" id="modal-backdrop">
   <div class="qm-modal" data-stop="1">
-    <div class="qm-modal-title">プレイヤーを追加</div>
+    <div class="qm-modal-title" id="modal-title">プレイヤーを追加</div>
     <div class="qm-field">
       <label class="qm-label" for="modal-name-input">名前</label>
       <input class="qm-input" id="modal-name-input" type="text" maxlength="20" placeholder="プレイヤー名" autocomplete="off">
@@ -414,6 +453,11 @@ body { margin: 0; }
       <button class="qm-btn qm-btn-primary" type="button" id="btn-modal-confirm">追加</button>
     </div>
   </div>
+</div>
+
+<div class="qm-kebab-menu qm-hidden" id="kebab-menu">
+  <button class="qm-kebab-menu-item" type="button" id="kebab-edit">✎ 編集</button>
+  <button class="qm-kebab-menu-item danger" type="button" id="kebab-delete">✕ 削除</button>
 </div>
 
 <audio id="audio-buzz" src="button.mp3" preload="auto"></audio>
@@ -444,6 +488,8 @@ body { margin: 0; }
     picking: false           // モーダル内でキー選択待ちか
   };
   var pickedKey = null;
+  var editingId = null;
+  var kebabTargetId = null;
   var clockRAF = null;
   var uidSeed = 1;
 
@@ -501,11 +547,15 @@ body { margin: 0; }
     btnClearPlayers: document.getElementById('btn-clear-players'),
     scoreboardList: document.getElementById('scoreboard-list'),
     modalBackdrop: document.getElementById('modal-backdrop'),
+    modalTitle: document.getElementById('modal-title'),
     modalNameInput: document.getElementById('modal-name-input'),
     btnPickKey: document.getElementById('btn-pick-key'),
     modalError: document.getElementById('modal-error'),
     btnModalCancel: document.getElementById('btn-modal-cancel'),
-    btnModalConfirm: document.getElementById('btn-modal-confirm')
+    btnModalConfirm: document.getElementById('btn-modal-confirm'),
+    kebabMenu: document.getElementById('kebab-menu'),
+    kebabEdit: document.getElementById('kebab-edit'),
+    kebabDelete: document.getElementById('kebab-delete')
   };
 
   function escapeHtml(s) {
@@ -580,19 +630,23 @@ body { margin: 0; }
     el.wrongPointsInput.value = state.wrongPoints;
   });
 
-  // ---------------- modal (add player) ----------------
-  function openModal() {
-    pickedKey = null;
+  // ---------------- modal (add / edit player) ----------------
+  function openModal(editPlayer) {
+    editingId = editPlayer ? editPlayer.id : null;
+    pickedKey = editPlayer ? editPlayer.key : null;
     state.picking = false;
-    el.modalNameInput.value = '';
-    el.btnPickKey.textContent = 'キーを選択';
+    el.modalTitle.textContent = editPlayer ? 'プレイヤーを編集' : 'プレイヤーを追加';
+    el.modalNameInput.value = editPlayer ? editPlayer.name : '';
+    el.btnPickKey.textContent = editPlayer ? '選択したキー：' + editPlayer.key + '（変更する）' : 'キーを選択';
     el.btnPickKey.classList.remove('picking');
     el.modalError.textContent = '';
+    el.btnModalConfirm.textContent = editPlayer ? '保存' : '追加';
     el.modalBackdrop.classList.remove('qm-hidden');
     el.modalNameInput.focus();
   }
   function closeModal() {
     state.picking = false;
+    editingId = null;
     el.modalBackdrop.classList.add('qm-hidden');
   }
   function startKeyPicking() {
@@ -604,7 +658,7 @@ body { margin: 0; }
   function finishKeyPicking(letter) {
     var usedBy = null;
     for (var i = 0; i < state.players.length; i++) {
-      if (state.players[i].key === letter) usedBy = state.players[i];
+      if (state.players[i].key === letter && state.players[i].id !== editingId) usedBy = state.players[i];
     }
     if (usedBy) {
       el.modalError.textContent = 'そのキーは「' + usedBy.name + '」が使用中です。';
@@ -619,7 +673,7 @@ body { margin: 0; }
     el.btnPickKey.classList.remove('picking');
     el.modalError.textContent = '';
   }
-  function confirmAddPlayer() {
+  function confirmModal() {
     var name = el.modalNameInput.value.trim();
     if (!name) {
       el.modalError.textContent = '名前を入力してください。';
@@ -629,21 +683,67 @@ body { margin: 0; }
       el.modalError.textContent = '使用するキーを選択してください。';
       return;
     }
+    if (editingId) {
+      var target = findPlayer(editingId);
+      if (target) {
+        target.name = name;
+        target.key = pickedKey;
+      }
+      closeModal();
+      setStatus('「' + name + '」を更新しました。', '');
+      renderAll();
+      return;
+    }
     state.players.push({ id: genId(), name: name, key: pickedKey, score: 0, correct: 0, wrong: 0 });
     closeModal();
     setStatus('「' + name + '」を追加しました。', '');
     renderAll();
   }
 
-  el.btnAddPlayer.addEventListener('click', openModal);
+  el.btnAddPlayer.addEventListener('click', function () { openModal(); });
   el.btnModalCancel.addEventListener('click', closeModal);
-  el.btnModalConfirm.addEventListener('click', confirmAddPlayer);
+  el.btnModalConfirm.addEventListener('click', confirmModal);
   el.btnPickKey.addEventListener('click', startKeyPicking);
   el.modalBackdrop.addEventListener('click', function (e) {
     if (e.target === el.modalBackdrop) closeModal();
   });
   el.modalNameInput.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') { e.preventDefault(); confirmAddPlayer(); }
+    if (e.key === 'Enter') { e.preventDefault(); confirmModal(); }
+  });
+
+  // ---------------- kebab menu ----------------
+  function closeKebabMenu() {
+    kebabTargetId = null;
+    el.kebabMenu.classList.add('qm-hidden');
+  }
+  function openKebabMenu(btn, id) {
+    kebabTargetId = id;
+    var rect = btn.getBoundingClientRect();
+    el.kebabMenu.style.top = (rect.bottom + 6) + 'px';
+    el.kebabMenu.style.left = 'auto';
+    el.kebabMenu.style.right = Math.max(8, window.innerWidth - rect.right) + 'px';
+    el.kebabMenu.classList.remove('qm-hidden');
+  }
+  document.addEventListener('click', function (e) {
+    if (el.kebabMenu.classList.contains('qm-hidden')) return;
+    if (e.target.closest('.qm-kebab-menu') || e.target.closest('[data-action="kebab"]')) return;
+    closeKebabMenu();
+  });
+  el.kebabEdit.addEventListener('click', function () {
+    var id = kebabTargetId;
+    closeKebabMenu();
+    var p = findPlayer(id);
+    if (p) openModal(p);
+  });
+  el.kebabDelete.addEventListener('click', function () {
+    var id = kebabTargetId;
+    closeKebabMenu();
+    var p = findPlayer(id);
+    if (!p) return;
+    state.players = state.players.filter(function (x) { return x.id !== id; });
+    if (state.currentId === id) state.currentId = null;
+    setStatus('「' + p.name + '」を削除しました。', '');
+    renderAll();
   });
 
   // ---------------- quiz flow ----------------
@@ -932,6 +1032,7 @@ body { margin: 0; }
   }
 
   function renderScoreboard() {
+    closeKebabMenu();
     var html = '';
     state.players.forEach(function (p) {
       var controlHtml;
@@ -953,7 +1054,7 @@ body { margin: 0; }
         '<span class="qm-participant-key">' + p.key + '</span>' +
         '<span class="qm-participant-name">' + escapeHtml(p.name) + '</span>' +
         controlHtml +
-        '<button class="qm-participant-remove" type="button" data-action="remove" data-id="' + p.id + '" aria-label="削除">✕</button>' +
+        '<button class="qm-kebab-btn" type="button" data-action="kebab" data-id="' + p.id + '" aria-label="メニュー" aria-haspopup="true">⋮</button>' +
         '</div>';
     });
     el.scoreboardList.innerHTML = html;
@@ -989,15 +1090,21 @@ body { margin: 0; }
     if (!actionEl) return;
     var id = actionEl.getAttribute('data-id');
     var action = actionEl.getAttribute('data-action');
+
+    if (action === 'kebab') {
+      e.stopPropagation();
+      if (kebabTargetId === id && !el.kebabMenu.classList.contains('qm-hidden')) {
+        closeKebabMenu();
+      } else {
+        openKebabMenu(actionEl, id);
+      }
+      return;
+    }
+
     var p = findPlayer(id);
     if (!p) return;
     if (action === 'score-inc') { p.score += 1; renderScoreboard(); }
     else if (action === 'score-dec') { p.score -= 1; renderScoreboard(); }
-    else if (action === 'remove') {
-      state.players = state.players.filter(function (x) { return x.id !== id; });
-      if (state.currentId === id) state.currentId = null;
-      renderAll();
-    }
   });
 
   el.scoreboardList.addEventListener('contextmenu', function (e) {
