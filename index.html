@@ -571,12 +571,74 @@ body { margin: 0; }
     return null;
   }
 
-  function playSound(audioEl) {
-    if (!audioEl || !state.soundOn) return;
+  // ---- 低遅延サウンド再生 ----
+  // HTMLAudioElement の .play() は再生開始までに数十〜数百msの遅延が
+  // 発生することがあるため、Web Audio API でデコード済みバッファを
+  // 即時再生する。Web Audio が使えない環境（file:// での fetch 制限など）
+  // では、複数の <audio> 要素をプールして交互に再生するフォールバックを使う。
+  var AudioCtx = window.AudioContext || window.webkitAudioContext;
+  var audioCtx = AudioCtx ? new AudioCtx() : null;
+  var soundSources = { buzz: 'button.mp3', correct: 'seikai.mp3', wrong: 'gotou.mp3' };
+  var soundBuffers = {};   // key -> decoded AudioBuffer（成功時のみ）
+  var soundPools = {};     // key -> [HTMLAudioElement, ...]（フォールバック用）
+  var POOL_SIZE = 4;
+
+  function buildPool(key, srcEl) {
+    var pool = [];
+    for (var i = 0; i < POOL_SIZE; i++) {
+      var a = srcEl.cloneNode(true);
+      a.removeAttribute('id');
+      pool.push(a);
+    }
+    soundPools[key] = pool;
+    soundPools[key + '_idx'] = 0;
+  }
+
+  function loadBuffer(key, url) {
+    if (!audioCtx) return;
+    fetch(url)
+      .then(function (res) { return res.arrayBuffer(); })
+      .then(function (buf) { return audioCtx.decodeAudioData(buf); })
+      .then(function (decoded) { soundBuffers[key] = decoded; })
+      .catch(function () { /* デコード失敗時はプール再生にフォールバック */ });
+  }
+
+  buildPool('buzz', el.audioBuzz);
+  buildPool('correct', el.audioCorrect);
+  buildPool('wrong', el.audioWrong);
+  Object.keys(soundSources).forEach(function (key) {
+    loadBuffer(key, soundSources[key]);
+  });
+
+  function playViaPool(key) {
+    var pool = soundPools[key];
+    if (!pool || !pool.length) return;
+    var idx = soundPools[key + '_idx'] % pool.length;
+    soundPools[key + '_idx'] = idx + 1;
+    var a = pool[idx];
     try {
-      audioEl.currentTime = 0;
-      audioEl.play();
+      a.currentTime = 0;
+      a.play();
     } catch (e) { /* 再生できない環境では無視 */ }
+  }
+
+  function playSound(key) {
+    if (!state.soundOn) return;
+    // ユーザー操作（ボタン押下）の直後に呼ばれるので、ここで resume して良い
+    if (audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+    var buffer = soundBuffers[key];
+    if (audioCtx && buffer) {
+      try {
+        var source = audioCtx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioCtx.destination);
+        source.start(0);
+        return;
+      } catch (e) { /* 失敗時はプール再生にフォールバック */ }
+    }
+    playViaPool(key);
   }
 
   function updateSoundToggleUI() {
@@ -806,7 +868,7 @@ body { margin: 0; }
       if (queueHasId(id)) return; // 既に待機列にいる
       var elapsedE = (performance.now() - state.startTime) / 1000;
       state.buzzedSet[id] = true;
-      playSound(el.audioBuzz);
+      playSound('buzz');
       var pe = findPlayer(id);
       if (state.currentId === null) {
         state.currentId = id;
@@ -831,7 +893,7 @@ body { margin: 0; }
     state.currentId = id;
     if (state.rule === 'single') state.singleLocked = true;
 
-    playSound(el.audioBuzz);
+    playSound('buzz');
 
     var p = findPlayer(id);
     setStatus(p ? p.name + ' さんが解答権を得ました。' : '', 'red');
@@ -858,7 +920,7 @@ body { margin: 0; }
       state.roundEnded = false;
       state.currentId = null;
       state.queue = [];
-      playSound(el.audioCorrect);
+      playSound('correct');
       setStatus(p.name + ' さん正解！ +1点', 'gold');
       renderAll();
       return;
@@ -867,7 +929,7 @@ body { margin: 0; }
     // 誤答
     p.score -= state.wrongPoints;
     p.wrong = (p.wrong || 0) + 1;
-    playSound(el.audioWrong);
+    playSound('wrong');
 
     if (state.rule === 'single') {
       // シングルチャンス: 誤答でもそのまま問題終了
